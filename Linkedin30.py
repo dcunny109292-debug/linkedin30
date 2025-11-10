@@ -1,6 +1,3 @@
-# linkedin30.py
-# FULL MVP CODE – Paste into GitHub now
-
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
@@ -11,11 +8,85 @@ import zipfile
 import textwrap
 from PIL import Image, ImageDraw, ImageFont
 import io
+import stripe
 
-# === CONFIG ===
+# === SECRETS (DO NOT CHANGE) ===
+# These are set in Streamlit > Settings > Secrets
+stripe.api_key = st.secrets["STRIPE_SECRET_KEY"]
+STRIPE_PUBLISHABLE_KEY = st.secrets["STRIPE_PUBLISHABLE_KEY"]
+PRICE_ID = st.secrets["PRICE_ID"]
+APP_URL = st.secrets["APP_URL"]
+
+# === PRO STYLING ===
 st.set_page_config(page_title="LinkedIn30 – AI Content Calendar", layout="centered")
-st.title("LinkedIn30")
-st.markdown("**Paste your blog URL → Get 30 LinkedIn posts + carousels in 60s**")
+st.markdown("""
+<style>
+    .main {background-color: #0e1117; color: white; padding: 2rem;}
+    .stButton>button {background: #0A66C2; color: white; border-radius: 12px; padding: 12px 24px; font-weight: bold; border: none;}
+    .stTextInput>div>div>input {background: #1a1a1a; color: white; border: 1px solid #0A66C2; border-radius: 12px; padding: 12px;}
+    h1 {color: #0A66C2; text-align: center; font-size: 2.8rem; margin-bottom: 0;}
+    .subtitle {text-align: center; color: #aaa; font-size: 1.2rem; margin-bottom: 2rem;}
+    .footer {text-align: center; margin-top: 60px; color: #666; font-size: 0.9rem;}
+    .pro-badge {background: #0A66C2; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: bold;}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("<h1>LinkedIn30</h1>", unsafe_allow_html=True)
+st.markdown("<p class='subtitle'>Turn 1 blog → 30 <b>high-engagement</b> LinkedIn posts in 60s</p>", unsafe_allow_html=True)
+
+# === SESSION STATE ===
+if 'is_pro' not in st.session_state:
+    st.session_state.is_pro = False
+if 'generations_today' not in st.session_state:
+    st.session_state.generations_today = 0
+
+# === UPGRADE CTA ===
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    if st.session_state.is_pro:
+        st.markdown("<p class='pro-badge'>PRO USER – UNLIMITED</p>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+        <div style='text-align:center; padding:24px; background:#1a1a1a; border-radius:16px; border:2px solid #0A66C2;'>
+            <h3>Go Pro</h3>
+            <p style='margin:8px 0;'><s>£19/month</s> → <b style='font-size:1.4rem;'>£9 first month</b></p>
+            <p style='margin:8px 0; font-size:0.95rem;'>Unlimited calendars • Priority support • Export to PDF</p>
+            <button id="checkout-button" style='background:#0A66C2; color:white; border:none; padding:12px 24px; border-radius:12px; font-weight:bold; cursor:pointer;'>
+                Upgrade Now
+            </button>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Stripe Checkout JS
+        st.markdown(f"""
+        <script src="https://js.stripe.com/v3/"></script>
+        <script>
+        const stripe = Stripe('{STRIPE_PUBLISHABLE_KEY}');
+        document.getElementById('checkout-button').addEventListener('click', () => {{
+            stripe.redirectToCheckout({{
+                lineItems: [{{ price: '{PRICE_ID}', quantity: 1 }}],
+                mode: 'subscription',
+                successUrl: '{APP_URL}?session_id={{CHECKOUT_SESSION_ID}}',
+                cancelUrl: '{APP_URL}',
+            }});
+        }});
+        </script>
+        """, unsafe_allow_html=True)
+
+# === CHECK PAYMENT SUCCESS ===
+def verify_payment():
+    session_id = st.query_params.get("session_id")
+    if session_id and not st.session_state.is_pro:
+        try:
+            session = stripe.checkout.Session.retrieve(session_id)
+            if session.payment_status == "paid":
+                st.session_state.is_pro = True
+                st.success("Payment successful! Welcome to Pro.")
+                st.rerun()
+        except:
+            pass
+
+verify_payment()
 
 # === CONTENT LISTS ===
 HOOKS = [
@@ -97,59 +168,69 @@ def generate_posts(text):
         posts.append({"Day": f"Day {i+1}", "Type": post_type, "Post": post, "Time": day})
     return posts
 
-# === CAROUSEL IMAGES ===
+# === PRO CAROUSEL DESIGN ===
 def text_to_png(text, title):
-    img = Image.new('RGB', (800, 600), color='#1DA1F2')
+    img = Image.new('RGB', (1080, 1080), color='#0A66C2')
     draw = ImageDraw.Draw(img)
     try:
-        font = ImageFont.truetype("arial.ttf", 40)
-        small_font = ImageFont.truetype("arial.ttf", 30)
+        title_font = ImageFont.truetype("Arial Bold.ttf", 80)
+        body_font = ImageFont.truetype("Arial.ttf", 60)
     except:
-        font = ImageFont.load_default()
-        small_font = font
+        title_font = ImageFont.load_default()
+        body_font = title_font
     
-    wrapped = textwrap.fill(text, width=40)
-    draw.text((50, 50), title, fill='white', font=font)
-    draw.text((50, 150), wrapped, fill='white', font=small_font)
-    draw.text((50, 500), "linkedin30.app", fill='#ffffff88', font=small_font)
+    draw.text((80, 80), title, fill='white', font=title_font)
+    wrapped = textwrap.fill(text, width=35)
+    draw.multiline_text((80, 220), wrapped, fill='white', font=body_font, spacing=20)
+    draw.text((80, 920), "linkedin30.app | Built for UK Solopreneurs", fill='#ffffff88', font=body_font)
+    draw.rectangle([0, 0, 1079, 1079], outline='white', width=8)
     
     buf = io.BytesIO()
     img.save(buf, format='PNG')
     return buf.getvalue()
 
 # === MAIN APP ===
-url = st.text_input("Paste your blog or YouTube URL:", placeholder="https://yourblog.com/post")
-if st.button("Generate 30-Day LinkedIn Calendar"):
-    with st.spinner("Scraping + generating..."):
-        text = scrape_text(url)
-        posts = generate_posts(text)
-        df = pd.DataFrame(posts)
-        
-        st.success("Done! Here's your 30-day plan:")
-        st.dataframe(df, use_container_width=True)
-        
-        # CSV
-        csv = df.to_csv(index=False).encode()
-        st.download_button("Download CSV", csv, "linkedin_calendar.csv", "text/csv")
-        
-        # CAROUSELS
-        st.markdown("### 5 Carousel Images (PNG)")
-        carousel_texts = [
-            ("Hook Example", df.iloc[0]["Post"]),
-            ("Value Tip", df.iloc[11]["Post"]),
-            ("CTA", df.iloc[21]["Post"]),
-            ("SEO Hack", "Rank #1 for 'UK solopreneur tips' in 30 days"),
-            ("AI Win", "Saved 10hrs/week with AI content")
-        ]
-        
-        zip_buffer = BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w") as zf:
-            for i, (title, text) in enumerate(carousel_texts):
-                png_data = text_to_png(text, title)
-                zf.writestr(f"carousel_{i+1}.png", png_data)
-                st.image(png_data, caption=f"Carousel {i+1}: {title}", width=300)
-        
-        st.download_button("Download All Carousels (ZIP)", zip_buffer.getvalue(), "linkedin_carousels.zip", "application/zip")
+url = st.text_input("Paste your blog or YouTube URL:", placeholder="https://yourblog.com/post", key="url_input")
 
+if st.button("Generate 30-Day LinkedIn Calendar", type="primary"):
+    if not st.session_state.is_pro and st.session_state.generations_today >= 1:
+        st.warning("Free limit reached (1/day). Upgrade to Pro for unlimited!")
+    else:
+        with st.spinner("Scraping + generating your 30-day plan..."):
+            text = scrape_text(url)
+            posts = generate_posts(text)
+            df = pd.DataFrame(posts)
+            
+            st.success("Done! Here's your 30-day LinkedIn plan:")
+            st.dataframe(df, use_container_width=True)
+            
+            # CSV
+            csv = df.to_csv(index=False).encode()
+            st.download_button("Download CSV Calendar", csv, "linkedin30_calendar.csv", "text/csv")
+            
+            # CAROUSELS
+            st.markdown("### 5 Pro Carousel Images (1080×1080)")
+            carousel_texts = [
+                ("Hook Example", df.iloc[0]["Post"]),
+                ("Value Tip", df.iloc[11]["Post"]),
+                ("Call to Action", df.iloc[21]["Post"]),
+                ("SEO Hack", "Rank #1 for 'UK solopreneur tips' in 30 days"),
+                ("AI Win", "Saved 10hrs/week with AI content")
+            ]
+            
+            zip_buffer = BytesIO()
+            with zipfile.ZipFile(zip_buffer, "w") as zf:
+                for i, (title, text) in enumerate(carousel_texts):
+                    png_data = text_to_png(text, title)
+                    zf.writestr(f"carousel_{i+1}.png", png_data)
+                    st.image(png_data, caption=f"{title}", width=300)
+            
+            st.download_button("Download All Carousels (ZIP)", zip_buffer.getvalue(), "linkedin30_carousels.zip", "application/zip")
+            
+            # Count generation
+            if not st.session_state.is_pro:
+                st.session_state.generations_today += 1
+
+# === FOOTER ===
 st.markdown("---")
-st.markdown("**£9 first month → £19/month** | Built for UK solopreneurs")
+st.markdown("<p class='footer'>© 2025 LinkedIn30 | Built for UK Solopreneurs</p>", unsafe_allow_html=True)

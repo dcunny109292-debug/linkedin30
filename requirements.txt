@@ -1,0 +1,5 @@
+streamlit
+beautifulsoup4
+pillow
+pandas
+requests

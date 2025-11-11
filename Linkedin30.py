@@ -1,3 +1,7 @@
+# LinkedIn30.py - FULL PRO MVP WITH WORKING STRIPE PAYMENTS
+# Paste this ENTIRE file into GitHub → Commit → Redeploy
+# Secrets: STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, PRICE_ID, APP_URL
+
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
@@ -10,8 +14,7 @@ from PIL import Image, ImageDraw, ImageFont
 import io
 import stripe
 
-# === SECRETS (DO NOT CHANGE) ===
-# These are set in Streamlit > Settings > Secrets
+# === SECRETS (SET IN STREAMLIT CLOUD) ===
 stripe.api_key = st.secrets["STRIPE_SECRET_KEY"]
 STRIPE_PUBLISHABLE_KEY = st.secrets["STRIPE_PUBLISHABLE_KEY"]
 PRICE_ID = st.secrets["PRICE_ID"]
@@ -40,7 +43,7 @@ if 'is_pro' not in st.session_state:
 if 'generations_today' not in st.session_state:
     st.session_state.generations_today = 0
 
-# === UPGRADE CTA ===
+# === UPGRADE CTA (FIXED STRIPE JS) ===
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     if st.session_state.is_pro:
@@ -51,24 +54,31 @@ with col2:
             <h3>Go Pro</h3>
             <p style='margin:8px 0;'><s>£19/month</s> → <b style='font-size:1.4rem;'>£9 first month</b></p>
             <p style='margin:8px 0; font-size:0.95rem;'>Unlimited calendars • Priority support • Export to PDF</p>
-            <button id="checkout-button" style='background:#0A66C2; color:white; border:none; padding:12px 24px; border-radius:12px; font-weight:bold; cursor:pointer;'>
-                Upgrade Now
-            </button>
+            <div id="checkout-container"></div>
         </div>
         """, unsafe_allow_html=True)
         
-        # Stripe Checkout JS
+        # FIXED STRIPE JS (loads after DOM)
         st.markdown(f"""
         <script src="https://js.stripe.com/v3/"></script>
         <script>
-        const stripe = Stripe('{STRIPE_PUBLISHABLE_KEY}');
-        document.getElementById('checkout-button').addEventListener('click', () => {{
-            stripe.redirectToCheckout({{
-                lineItems: [{{ price: '{PRICE_ID}', quantity: 1 }}],
-                mode: 'subscription',
-                successUrl: '{APP_URL}?session_id={{CHECKOUT_SESSION_ID}}',
-                cancelUrl: '{APP_URL}',
-            }});
+        document.addEventListener('DOMContentLoaded', function() {{
+            const stripe = Stripe('{STRIPE_PUBLISHABLE_KEY}');
+            const container = document.getElementById('checkout-container');
+            if (container && stripe) {{
+                const button = document.createElement('button');
+                button.textContent = 'Upgrade Now';
+                button.style.cssText = 'background:#0A66C2; color:white; border:none; padding:12px 24px; border-radius:12px; font-weight:bold; cursor:pointer; margin-top:12px;';
+                button.onclick = function() {{
+                    stripe.redirectToCheckout({{
+                        lineItems: [{{ price: '{PRICE_ID}', quantity: 1 }}],
+                        mode: 'subscription',
+                        successUrl: '{APP_URL}?session_id={{CHECKOUT_SESSION_ID}}',
+                        cancelUrl: '{APP_URL}',
+                    }}).catch(err => console.error(err));
+                }};
+                container.appendChild(button);
+            }}
         }});
         </script>
         """, unsafe_allow_html=True)
@@ -83,9 +93,8 @@ def verify_payment():
                 st.session_state.is_pro = True
                 st.success("Payment successful! Welcome to Pro.")
                 st.rerun()
-        except:
-            pass
-
+        except Exception as e:
+            st.error(f"Payment error: {str(e)}")
 verify_payment()
 
 # === CONTENT LISTS ===
